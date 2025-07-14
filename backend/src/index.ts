@@ -2,7 +2,6 @@ import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
-import { v4 as uuidv4 } from 'uuid';
 import { Device, Room, simulateDevices } from './simulationEngine';
 import { AutomationEngine } from './automationEngine';
 import { SceneEngine } from './sceneEngine';
@@ -12,7 +11,8 @@ const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: "http://localhost:3000",
+    // FIX: Allow connections from any origin
+    origin: "*",
     methods: ["GET", "POST"]
   }
 });
@@ -27,14 +27,14 @@ const rooms: Room[] = [];
 const analyticsEngine = new AnalyticsEngine(io);
 const automationEngine = new AutomationEngine(devices, io, analyticsEngine);
 const sceneEngine = new SceneEngine(devices, io, analyticsEngine);
+
 simulateDevices(devices, rooms, io, analyticsEngine);
 
+// --- API Endpoints ---
 app.get('/rooms', (req, res) => {
   res.json(rooms.map(room => ({
     ...room,
-    devices: room.devices.map(deviceId => 
-      devices.find(d => d.id === deviceId)
-    )
+    devices: room.devices.map(deviceId => devices.find(d => d.id === deviceId))
   })));
 });
 
@@ -67,9 +67,7 @@ app.post('/rules', (req, res) => {
 app.put('/rules/:id', (req, res) => {
   try {
     const rule = automationEngine.updateRule(req.params.id, req.body);
-    if (!rule) {
-      return res.status(404).json({ error: 'Rule not found' });
-    }
+    if (!rule) return res.status(404).json({ error: 'Rule not found' });
     res.json(rule);
   } catch (error) {
     res.status(400).json({ error: 'Invalid rule data' });
@@ -78,28 +76,27 @@ app.put('/rules/:id', (req, res) => {
 
 app.delete('/rules/:id', (req, res) => {
   const success = automationEngine.deleteRule(req.params.id);
-  if (!success) {
-    return res.status(404).json({ error: 'Rule not found' });
-  }
+  if (!success) return res.status(404).json({ error: 'Rule not found' });
   res.json({ success: true });
 });
 
-app.get('/automation/stats', (req, res) => {
-  res.json(automationEngine.getStats());
+app.get('/analytics/stats', (req, res) => {
+  res.json(analyticsEngine.getStats());
 });
 
+// --- WebSocket Connection Handler ---
 io.on('connection', (socket) => {
   console.log('Client connected');
-  
+
   socket.emit('devices-update', devices);
   socket.emit('rooms-update', rooms.map(room => ({
     ...room,
-    devices: room.devices.map(deviceId => 
-      devices.find(d => d.id === deviceId))
+    devices: room.devices.map(deviceId => devices.find(d => d.id === deviceId))
   })));
   socket.emit('rules-update', automationEngine.getRules());
   socket.emit('scenes-update', sceneEngine.getScenes());
-  
+  socket.emit('analytics-update', analyticsEngine.getStats());
+
   socket.on('control-device', (data) => {
     const device = devices.find(d => d.id === data.id);
     if (device) {
@@ -109,52 +106,18 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('activate-scene', (sceneId) => {
-    sceneEngine.activateScene(sceneId);
-  });
+  socket.on('activate-scene', (sceneId) => sceneEngine.activateScene(sceneId));
+  socket.on('create-rule', (ruleData) => automationEngine.addRule(ruleData));
+  socket.on('update-rule', ({ id, updates }) => automationEngine.updateRule(id, updates));
+  socket.on('delete-rule', (id) => automationEngine.deleteRule(id));
 
-  socket.on('create-rule', (ruleData) => {
-    try {
-      const rule = automationEngine.addRule(ruleData);
-      socket.emit('rule-created', rule);
-    } catch (error) {
-      socket.emit('rule-error', { error: 'Failed to create rule' });
-    }
-  });
+  socket.on('disconnect', () => console.log('Client disconnected'));
+});
 
-  socket.on('update-rule', ({ id, updates }) => {
-    try {
-      const rule = automationEngine.updateRule(id, updates);
-      if (rule) {
-        socket.emit('rule-updated', rule);
-      } else {
-        socket.emit('rule-error', { error: 'Rule not found' });
-      }
-    } catch (error) {
-      socket.emit('rule-error', { error: 'Failed to update rule' });
-    }
-  });
-
-  socket.on('delete-rule', (id) => {
-    try {
-      const success = automationEngine.deleteRule(id);
-      if (success) {
-        socket.emit('rule-deleted', id);
-      } else {
-        socket.emit('rule-error', { error: 'Rule not found' });
-      }
-    } catch (error) {
-      socket.emit('rule-error', { error: 'Failed to delete rule' });
-    }
-  });
-
-  socket.on('get-automation-stats', () => {
-    socket.emit('automation-stats', automationEngine.getStats());
-  });
-  
-  socket.on('disconnect', () => {
-    console.log('Client disconnected');
-  });
+// --- Server Startup & Shutdown ---
+httpServer.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+  console.log('Automation engine started');
 });
 
 process.on('SIGINT', () => {
@@ -164,9 +127,4 @@ process.on('SIGINT', () => {
     console.log('Server closed');
     process.exit(0);
   });
-});
-
-httpServer.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log('Automation engine started');
 });

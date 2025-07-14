@@ -16,8 +16,8 @@ export interface Device {
   state: any;
 }
 
-// Simulation logic
-export const simulateDevices = (devices: Device[], rooms: Room[], io: Server) => {
+// FIX: Added analyticsEngine as a parameter
+export const simulateDevices = (devices: Device[], rooms: Room[], io: Server, analyticsEngine: AnalyticsEngine) => {
   // Initialize rooms
   const roomNames = ['Living Room', 'Kitchen', 'Bedroom', 'Bathroom', 'Garage'];
   roomNames.forEach((name, i) => {
@@ -30,12 +30,12 @@ export const simulateDevices = (devices: Device[], rooms: Room[], io: Server) =>
 
   // Initialize devices
   const deviceTypes = ['light', 'thermostat', 'camera', 'lock', 'sensor'];
-  
+
   // Create 15 sample devices
   for (let i = 0; i < 15; i++) {
     const type = deviceTypes[Math.floor(Math.random() * deviceTypes.length)];
     const room = rooms[Math.floor(Math.random() * rooms.length)];
-    
+
     const device: Device = {
       id: `device_${i}`,
       name: `${type.charAt(0).toUpperCase() + type.slice(1)} ${i+1}`,
@@ -50,31 +50,31 @@ export const simulateDevices = (devices: Device[], rooms: Room[], io: Server) =>
         device.state = { on: Math.random() > 0.5, brightness: Math.floor(Math.random() * 100), color: '#ffffff' };
         break;
       case 'thermostat':
-        device.state = { 
-          temperature: Math.floor(Math.random() * 20) + 65, 
-          mode: Math.random() > 0.5 ? 'cool' : 'heat', 
-          active: Math.random() > 0.5 
+        device.state = {
+          temperature: Math.floor(Math.random() * 20) + 65,
+          mode: Math.random() > 0.5 ? 'cool' : 'heat',
+          active: Math.random() > 0.5
         };
         break;
       case 'camera':
-        device.state = { 
-          active: Math.random() > 0.5, 
-          recording: false, 
-          motionDetected: false 
+        device.state = {
+          active: Math.random() > 0.5,
+          recording: false,
+          motionDetected: false
         };
         break;
       case 'lock':
         device.state = { locked: Math.random() > 0.5 };
         break;
       case 'sensor':
-        device.state = { 
-          temperature: Math.floor(Math.random() * 20) + 65, 
-          humidity: Math.floor(Math.random() * 50) + 20, 
-          motion: false 
+        device.state = {
+          temperature: Math.floor(Math.random() * 20) + 65,
+          humidity: Math.floor(Math.random() * 50) + 20,
+          motion: false
         };
         break;
     }
-    
+
     devices.push(device);
     room.devices.push(device.id);
   }
@@ -83,32 +83,28 @@ export const simulateDevices = (devices: Device[], rooms: Room[], io: Server) =>
   setInterval(() => {
     devices.forEach(device => {
       let shouldUpdate = false;
-      
+
       switch(device.type) {
         case 'sensor':
-          // Random fluctuations
           device.state.temperature += (Math.random() * 2 - 1);
           device.state.humidity += (Math.random() * 4 - 2);
           device.state.motion = Math.random() > 0.9;
           shouldUpdate = true;
           break;
-          
+
         case 'thermostat':
-          // Temperature changes based on mode
           if (device.state.active) {
             const target = device.state.mode === 'cool' ? 68 : 72;
             device.state.temperature += (target - device.state.temperature) * 0.1;
             shouldUpdate = true;
           }
           break;
-          
+
         case 'camera':
-          // Random motion detection
           if (device.state.active && Math.random() > 0.95) {
             device.state.motionDetected = true;
             shouldUpdate = true;
-            
-            // Reset after 5 seconds
+
             setTimeout(() => {
               device.state.motionDetected = false;
               io.emit('device-update', device);
@@ -116,7 +112,8 @@ export const simulateDevices = (devices: Device[], rooms: Room[], io: Server) =>
           }
           break;
       }
-      
+
+      // FIX: Correctly reference the passed analyticsEngine parameter
       if (device.type === 'light' && device.state.on) {
         analyticsEngine.logEnergyConsumption(device, 0.01); // Arbitrary energy value
       }

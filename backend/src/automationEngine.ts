@@ -40,7 +40,6 @@ export class AutomationEngine {
   }
 
   private initializeDefaultRules() {
-    // Example rule: Turn on lights when motion detected
     const sensor = this.devices.find(d => d.type === 'sensor');
     const light = this.devices.find(d => d.type === 'light');
 
@@ -65,10 +64,9 @@ export class AutomationEngine {
       });
     }
 
-    // Example rule: Lock doors when camera detects motion at night
     const cameraDevice = this.devices.find(d => d.type === 'camera');
     const lockDevice = this.devices.find(d => d.type === 'lock');
-    
+
     if (cameraDevice && lockDevice) {
       this.addRule({
         name: "Security Lock",
@@ -131,7 +129,7 @@ export class AutomationEngine {
     if (!device) return false;
 
     const currentValue = device.state[condition.property];
-    
+
     switch (condition.operator) {
       case 'eq': return currentValue === condition.value;
       case 'gt': return currentValue > condition.value;
@@ -182,7 +180,7 @@ export class AutomationEngine {
       this.evaluationInterval = null;
     }
   }
-  
+
   getStats() {
     return {
       totalRules: this.rules.length,

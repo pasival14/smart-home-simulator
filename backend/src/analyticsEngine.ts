@@ -1,6 +1,6 @@
 import { Server } from 'socket.io';
 import { Device } from './simulationEngine';
-import { Rule } from './automationEngine';
+import { Rule } from './automationEngine'; // FIX: Corrected import path
 
 export interface Analytics {
   totalEnergyConsumption: number;

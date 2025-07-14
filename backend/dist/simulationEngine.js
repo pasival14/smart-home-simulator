@@ -1,8 +1,8 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.simulateDevices = void 0;
-// Simulation logic
-const simulateDevices = (devices, rooms, io) => {
+// FIX: Added analyticsEngine as a parameter
+const simulateDevices = (devices, rooms, io, analyticsEngine) => {
     // Initialize rooms
     const roomNames = ['Living Room', 'Kitchen', 'Bedroom', 'Bathroom', 'Garage'];
     roomNames.forEach((name, i) => {
@@ -64,14 +64,12 @@ const simulateDevices = (devices, rooms, io) => {
             let shouldUpdate = false;
             switch (device.type) {
                 case 'sensor':
-                    // Random fluctuations
                     device.state.temperature += (Math.random() * 2 - 1);
                     device.state.humidity += (Math.random() * 4 - 2);
                     device.state.motion = Math.random() > 0.9;
                     shouldUpdate = true;
                     break;
                 case 'thermostat':
-                    // Temperature changes based on mode
                     if (device.state.active) {
                         const target = device.state.mode === 'cool' ? 68 : 72;
                         device.state.temperature += (target - device.state.temperature) * 0.1;
@@ -79,17 +77,19 @@ const simulateDevices = (devices, rooms, io) => {
                     }
                     break;
                 case 'camera':
-                    // Random motion detection
                     if (device.state.active && Math.random() > 0.95) {
                         device.state.motionDetected = true;
                         shouldUpdate = true;
-                        // Reset after 5 seconds
                         setTimeout(() => {
                             device.state.motionDetected = false;
                             io.emit('device-update', device);
                         }, 5000);
                     }
                     break;
+            }
+            // FIX: Correctly reference the passed analyticsEngine parameter
+            if (device.type === 'light' && device.state.on) {
+                analyticsEngine.logEnergyConsumption(device, 0.01); // Arbitrary energy value
             }
             if (shouldUpdate) {
                 io.emit('device-update', device);
