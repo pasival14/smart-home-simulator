@@ -7,7 +7,8 @@ import AnalyticsDashboard from './components/AnalyticsDashboard';
 import Header from './components/Header'; // Import the new Header
 import type { Device, Room, Rule, Scene, Analytics } from './types';
 
-const socket = io('http://localhost:4000');
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+const socket = io(API_URL);
 
 function App() {
   const [devices, setDevices] = useState<Device[]>([]);
@@ -26,11 +27,11 @@ function App() {
     const fetchData = async () => {
       try {
         const [devicesRes, roomsRes, rulesRes, scenesRes, analyticsRes] = await Promise.all([
-          fetch('http://localhost:4000/devices'),
-          fetch('http://localhost:4000/rooms'),
-          fetch('http://localhost:4000/rules'),
-          fetch('http://localhost:4000/scenes'),
-          fetch('http://localhost:4000/analytics/stats'),
+          fetch(`${API_URL}/devices`),
+          fetch(`${API_URL}/rooms`),
+          fetch(`${API_URL}/rules`),
+          fetch(`${API_URL}/scenes`),
+          fetch(`${API_URL}/analytics/stats`),
         ]);
 
         if (!devicesRes.ok || !roomsRes.ok || !rulesRes.ok || !scenesRes.ok || !analyticsRes.ok) {

@@ -36,6 +36,7 @@ export class AutomationEngine {
     this.io = io;
     this.analyticsEngine = analyticsEngine;
     this.startEvaluation();
+    // FIX: This call belongs in this constructor.
     this.initializeDefaultRules();
   }
 
@@ -63,30 +64,14 @@ export class AutomationEngine {
         enabled: true
       });
     }
-
-    const cameraDevice = this.devices.find(d => d.type === 'camera');
-    const lockDevice = this.devices.find(d => d.type === 'lock');
-
-    if (cameraDevice && lockDevice) {
-      this.addRule({
-        name: "Security Lock",
-        description: "Lock doors when motion detected on camera",
-        condition: {
-          deviceId: cameraDevice.id,
-          property: 'motionDetected',
-          operator: 'eq',
-          value: true
-        },
-        actions: [
-          {
-            deviceId: lockDevice.id,
-            property: 'locked',
-            value: true
-          }
-        ],
-        enabled: true
-      });
+  }
+  
+  private toBoolean(value: any): any {
+    if (typeof value === 'string') {
+      if (value.toLowerCase() === 'true') return true;
+      if (value.toLowerCase() === 'false') return false;
     }
+    return value;
   }
 
   addRule(ruleData: Omit<Rule, 'id' | 'createdAt' | 'triggerCount' | 'lastTriggered'>): Rule {
@@ -94,18 +79,42 @@ export class AutomationEngine {
       id: uuidv4(),
       createdAt: new Date(),
       triggerCount: 0,
-      ...ruleData
+      ...ruleData,
+      condition: {
+        ...ruleData.condition,
+        value: this.toBoolean(ruleData.condition.value)
+      },
+      actions: ruleData.actions.map(action => ({
+        ...action,
+        value: this.toBoolean(action.value)
+      }))
     };
-
     this.rules.push(rule);
     this.io.emit('rules-update', this.rules);
     return rule;
   }
 
+  private isConditionMet(condition: Rule['condition']): boolean {
+    const device = this.devices.find(d => d.id === condition.deviceId);
+    if (!device) return false;
+  
+    const currentValue = this.toBoolean(device.state[condition.property]);
+    const conditionValue = this.toBoolean(condition.value);
+  
+    switch (condition.operator) {
+      case 'eq': return currentValue === conditionValue;
+      case 'gt': return currentValue > conditionValue;
+      case 'lt': return currentValue < conditionValue;
+      case 'gte': return currentValue >= conditionValue;
+      case 'lte': return currentValue <= conditionValue;
+      case 'neq': return currentValue !== conditionValue;
+      default: return false;
+    }
+  }
+
   updateRule(id: string, updates: Partial<Rule>): Rule | null {
     const ruleIndex = this.rules.findIndex(r => r.id === id);
     if (ruleIndex === -1) return null;
-
     this.rules[ruleIndex] = { ...this.rules[ruleIndex], ...updates };
     this.io.emit('rules-update', this.rules);
     return this.rules[ruleIndex];
@@ -114,7 +123,6 @@ export class AutomationEngine {
   deleteRule(id: string): boolean {
     const ruleIndex = this.rules.findIndex(r => r.id === id);
     if (ruleIndex === -1) return false;
-
     this.rules.splice(ruleIndex, 1);
     this.io.emit('rules-update', this.rules);
     return true;
@@ -124,36 +132,17 @@ export class AutomationEngine {
     return this.rules;
   }
 
-  private isConditionMet(condition: Rule['condition']): boolean {
-    const device = this.devices.find(d => d.id === condition.deviceId);
-    if (!device) return false;
-
-    const currentValue = device.state[condition.property];
-
-    switch (condition.operator) {
-      case 'eq': return currentValue === condition.value;
-      case 'gt': return currentValue > condition.value;
-      case 'lt': return currentValue < condition.value;
-      case 'gte': return currentValue >= condition.value;
-      case 'lte': return currentValue <= condition.value;
-      case 'neq': return currentValue !== condition.value;
-      default: return false;
-    }
-  }
-
   private applyActions(actions: Rule['actions'], ruleId: string) {
     const rule = this.rules.find(r => r.id === ruleId);
     if (!rule) return;
-
     for (const action of actions) {
       const device = this.devices.find(d => d.id === action.deviceId);
       if (device) {
-        device.state[action.property] = action.value;
+        device.state[action.property] = this.toBoolean(action.value);
         this.analyticsEngine.logDeviceUsage(device, action.property);
         this.io.emit('device-update', device);
       }
     }
-
     rule.lastTriggered = new Date();
     rule.triggerCount++;
     this.analyticsEngine.logRuleTrigger(rule);
@@ -179,13 +168,5 @@ export class AutomationEngine {
       clearInterval(this.evaluationInterval);
       this.evaluationInterval = null;
     }
-  }
-
-  getStats() {
-    return {
-      totalRules: this.rules.length,
-      enabledRules: this.rules.filter(r => r.enabled).length,
-      totalTriggers: this.rules.reduce((sum, r) => sum + r.triggerCount, 0),
-    };
   }
 }
