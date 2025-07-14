@@ -1,5 +1,5 @@
 import { Server } from 'socket.io';
-
+import { AnalyticsEngine } from './analyticsEngine';
 
 // Define interfaces
 export interface Room {
@@ -117,6 +117,10 @@ export const simulateDevices = (devices: Device[], rooms: Room[], io: Server) =>
           break;
       }
       
+      if (device.type === 'light' && device.state.on) {
+        analyticsEngine.logEnergyConsumption(device, 0.01); // Arbitrary energy value
+      }
+
       if (shouldUpdate) {
         io.emit('device-update', device);
       }

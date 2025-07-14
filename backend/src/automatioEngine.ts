@@ -1,6 +1,7 @@
 import { Server } from 'socket.io';
 import { v4 as uuidv4 } from 'uuid';
 import { Device } from './simulationEngine';
+import { AnalyticsEngine } from './analyticsEngine';
 
 export interface Rule {
   id: string;
@@ -27,35 +28,42 @@ export class AutomationEngine {
   private rules: Rule[] = [];
   private devices: Device[] = [];
   private io: Server;
+  private analyticsEngine: AnalyticsEngine;
   private evaluationInterval: NodeJS.Timeout | null = null;
 
-  constructor(devices: Device[], io: Server) {
+  constructor(devices: Device[], io: Server, analyticsEngine: AnalyticsEngine) {
     this.devices = devices;
     this.io = io;
+    this.analyticsEngine = analyticsEngine;
     this.startEvaluation();
     this.initializeDefaultRules();
   }
 
   private initializeDefaultRules() {
     // Example rule: Turn on lights when motion detected
-    this.addRule({
-      name: "Motion Activated Lights",
-      description: "Turn on lights when motion is detected",
-      condition: {
-        deviceId: this.devices.find(d => d.type === 'sensor')?.id || '',
-        property: 'motion',
-        operator: 'eq',
-        value: true
-      },
-      actions: [
-        {
-          deviceId: this.devices.find(d => d.type === 'light')?.id || '',
-          property: 'on',
+    const sensor = this.devices.find(d => d.type === 'sensor');
+    const light = this.devices.find(d => d.type === 'light');
+
+    if (sensor && light) {
+      this.addRule({
+        name: "Motion Activated Lights",
+        description: "Turn on lights when motion is detected",
+        condition: {
+          deviceId: sensor.id,
+          property: 'motion',
+          operator: 'eq',
           value: true
-        }
-      ],
-      enabled: true
-    });
+        },
+        actions: [
+          {
+            deviceId: light.id,
+            property: 'on',
+            value: true
+          }
+        ],
+        enabled: true
+      });
+    }
 
     // Example rule: Lock doors when camera detects motion at night
     const cameraDevice = this.devices.find(d => d.type === 'camera');
@@ -136,56 +144,33 @@ export class AutomationEngine {
   }
 
   private applyActions(actions: Rule['actions'], ruleId: string) {
-    const appliedActions: any[] = [];
-    
+    const rule = this.rules.find(r => r.id === ruleId);
+    if (!rule) return;
+
     for (const action of actions) {
       const device = this.devices.find(d => d.id === action.deviceId);
       if (device) {
-        const oldValue = device.state[action.property];
         device.state[action.property] = action.value;
-        
-        appliedActions.push({
-          deviceId: action.deviceId,
-          deviceName: device.name,
-          property: action.property,
-          oldValue,
-          newValue: action.value
-        });
-
-        // Emit device update
+        this.analyticsEngine.logDeviceUsage(device, action.property);
         this.io.emit('device-update', device);
       }
     }
 
-    // Emit rule execution event
-    this.io.emit('rule-executed', {
-      ruleId,
-      timestamp: new Date(),
-      actions: appliedActions
-    });
+    rule.lastTriggered = new Date();
+    rule.triggerCount++;
+    this.analyticsEngine.logRuleTrigger(rule);
+    this.io.emit('rules-update', this.rules);
   }
 
   private evaluateRules() {
     for (const rule of this.rules) {
       if (rule.enabled && this.isConditionMet(rule.condition)) {
         this.applyActions(rule.actions, rule.id);
-        
-        // Update rule statistics
-        rule.lastTriggered = new Date();
-        rule.triggerCount++;
-        
-        // Emit rule triggered event
-        this.io.emit('rule-triggered', {
-          ruleId: rule.id,
-          ruleName: rule.name,
-          timestamp: rule.lastTriggered
-        });
       }
     }
   }
 
   private startEvaluation() {
-    // Evaluate rules every 1 second
     this.evaluationInterval = setInterval(() => {
       this.evaluateRules();
     }, 1000);
@@ -197,16 +182,12 @@ export class AutomationEngine {
       this.evaluationInterval = null;
     }
   }
-
-  // Get automation statistics
+  
   getStats() {
     return {
       totalRules: this.rules.length,
       enabledRules: this.rules.filter(r => r.enabled).length,
       totalTriggers: this.rules.reduce((sum, r) => sum + r.triggerCount, 0),
-      lastActivity: this.rules
-        .filter(r => r.lastTriggered)
-        .sort((a, b) => (b.lastTriggered?.getTime() || 0) - (a.lastTriggered?.getTime() || 0))[0]?.lastTriggered
     };
   }
 }

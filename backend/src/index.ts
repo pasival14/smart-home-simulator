@@ -5,6 +5,8 @@ import cors from 'cors';
 import { v4 as uuidv4 } from 'uuid';
 import { Device, Room, simulateDevices } from './simulationEngine';
 import { AutomationEngine } from './automationEngine';
+import { SceneEngine } from './sceneEngine';
+import { AnalyticsEngine } from './analyticsEngine';
 
 const app = express();
 const httpServer = createServer(app);
@@ -19,15 +21,14 @@ app.use(cors());
 app.use(express.json());
 const PORT = process.env.PORT || 4000;
 
-// Store devices and rooms in memory
 const devices: Device[] = [];
 const rooms: Room[] = [];
 
-// Initialize simulation and automation
-simulateDevices(devices, rooms, io);
-const automationEngine = new AutomationEngine(devices, io);
+const analyticsEngine = new AnalyticsEngine(io);
+const automationEngine = new AutomationEngine(devices, io, analyticsEngine);
+const sceneEngine = new SceneEngine(devices, io, analyticsEngine);
+simulateDevices(devices, rooms, io, analyticsEngine);
 
-// API endpoints
 app.get('/rooms', (req, res) => {
   res.json(rooms.map(room => ({
     ...room,
@@ -41,7 +42,15 @@ app.get('/devices', (req, res) => {
   res.json(devices);
 });
 
-// Automation rules endpoints
+app.get('/scenes', (req, res) => {
+  res.json(sceneEngine.getScenes());
+});
+
+app.post('/scenes/:id/activate', (req, res) => {
+  sceneEngine.activateScene(req.params.id);
+  res.json({ success: true });
+});
+
 app.get('/rules', (req, res) => {
   res.json(automationEngine.getRules());
 });
@@ -79,11 +88,9 @@ app.get('/automation/stats', (req, res) => {
   res.json(automationEngine.getStats());
 });
 
-// WebSocket connection handler
 io.on('connection', (socket) => {
   console.log('Client connected');
   
-  // Send initial data
   socket.emit('devices-update', devices);
   socket.emit('rooms-update', rooms.map(room => ({
     ...room,
@@ -91,17 +98,21 @@ io.on('connection', (socket) => {
       devices.find(d => d.id === deviceId))
   })));
   socket.emit('rules-update', automationEngine.getRules());
+  socket.emit('scenes-update', sceneEngine.getScenes());
   
-  // Handle device control from frontend
   socket.on('control-device', (data) => {
     const device = devices.find(d => d.id === data.id);
     if (device) {
       device.state = { ...device.state, ...data.state };
+      analyticsEngine.logDeviceUsage(device, Object.keys(data.state)[0]);
       io.emit('device-update', device);
     }
   });
 
-  // Handle rule management
+  socket.on('activate-scene', (sceneId) => {
+    sceneEngine.activateScene(sceneId);
+  });
+
   socket.on('create-rule', (ruleData) => {
     try {
       const rule = automationEngine.addRule(ruleData);
@@ -146,7 +157,6 @@ io.on('connection', (socket) => {
   });
 });
 
-// Graceful shutdown
 process.on('SIGINT', () => {
   console.log('Shutting down server...');
   automationEngine.stopEvaluation();
